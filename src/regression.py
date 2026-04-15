@@ -28,6 +28,7 @@ FEATURES = [
     "gold_ret_lag1",
     "silver_ret_lag1",
 ]
+
 TARGET = "target"
 
 
@@ -37,12 +38,14 @@ def prepare_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, pd.DataFram
     data["date"] = pd.to_datetime(data["date"])
     data = data.sort_values(["date", "market"]).reset_index(drop=True)
 
-    missing = [col for col in FEATURES + [TARGET, "market", "date"] if col not in data.columns]
+    missing = [col for col in FEATURES +
+               [TARGET, "market", "date"] if col not in data.columns]
     if missing:
-        raise ValueError(f"Missing required columns: {missing}")
+        raise ValueError(f"missing required columns: {missing}")
 
     X = data[FEATURES].copy()
-    market_dummies = pd.get_dummies(data["market"], prefix="market", drop_first=True, dtype=float)
+    market_dummies = pd.get_dummies(
+        data["market"], prefix="market", drop_first=True, dtype=float)
     X = pd.concat([X, market_dummies], axis=1)
     y = data[TARGET].astype(float)
 
@@ -100,7 +103,8 @@ def print_coefficients(model: LinearRegression, columns: pd.Index) -> None:
 
 def main() -> None:
     X, y, meta = prepare_data(model_df)
-    X_train, X_test, y_train, y_test, meta_train, meta_test = train_test_split_time_ordered(X, y, meta)
+    X_train, X_test, y_train, y_test, meta_train, meta_test = train_test_split_time_ordered(
+        X, y, meta)
 
     model = LinearRegression()
     model.fit(X_train, y_train)
@@ -120,8 +124,9 @@ def main() -> None:
     predictions = meta_test[["date", "market", "prob", TARGET]].copy()
     predictions["prediction"] = test_pred
     predictions["residual"] = predictions[TARGET] - predictions["prediction"]
-    
-    output_path = Path(__file__).resolve().parent.parent / "models" / "regression_predictions.csv"
+
+    output_path = Path(__file__).resolve().parent.parent / \
+        "models" / "regression_predictions.csv"
     predictions.to_csv(output_path, index=False)
     print("\nSaved out-of-sample predictions to regression_predictions.csv")
 
