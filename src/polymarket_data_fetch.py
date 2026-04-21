@@ -4,9 +4,14 @@ import requests
 
 MARKETS = {
     "recession_2026": "us-recession-by-end-of-2026",
+    "negative_gdp_2026": "negative-gdp-growth-in-2026",
+    "canada_recession_2026": "canada-recession-before-2027",
     "fed_hike_2026": "fed-rate-hike-in-2026",
+    "ecb_hike_2026": "ecb-rate-hike-in-2026",
     "china_taiwan": "will-china-invade-taiwan-before-2027",
     "ukraine_ceasefire": "russia-x-ukraine-ceasefire-before-2027",
+    "us_latam_invasion_2026": "will-the-us-invade-a-latin-american-country-in-2026",
+    "blanket_tariff_feb_2026": "new-10-us-blanket-tariff-goes-into-effect-by-february-28",
 }
 
 GAMMA = "https://gamma-api.polymarket.com"
@@ -17,6 +22,16 @@ def get_market(slug):
     r = requests.get(f"{GAMMA}/markets/slug/{slug}", timeout=30)
     r.raise_for_status()
     return r.json()
+
+
+def extract_market_datetime(market, *keys):
+    for key in keys:
+        value = market.get(key)
+        if value:
+            timestamp = pd.to_datetime(value, utc=True, errors="coerce")
+            if pd.notna(timestamp):
+                return timestamp.tz_convert(None).floor("D")
+    return pd.NaT
 
 
 def parse_pm_field(value):
@@ -92,6 +107,14 @@ for name, slug in MARKETS.items():
             continue
 
         df["market"] = name
+        df["resolution_date"] = extract_market_datetime(
+            market,
+            "endDate",
+            "end_date",
+            "endDateIso",
+            "resolveDate",
+            "resolve_date",
+        )
         data.append(df)
 
     except Exception as e:

@@ -5,8 +5,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import RidgeCV
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 from data_merge import (
     BASELINE_COL,
@@ -16,11 +18,12 @@ from data_merge import (
     TARGET,
     build_model_df,
 )
+ALPHAS = np.logspace(-4, 4, 25)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Fit OLS regression for a selected prediction horizon."
+        description="Fit RidgeCV regression for a selected prediction horizon."
     )
     parser.add_argument(
         "--horizon",
@@ -107,17 +110,22 @@ def print_baselines(
         print_metrics(y_true, pred, label)
 
 
-def print_coefficients(model: LinearRegression, columns: pd.Index) -> None:
+def print_coefficients(
+    model: RidgeCV,
+    columns: pd.Index,
+    top_n: int = 25,
+) -> None:
     coef_table = pd.DataFrame({
         "feature": columns,
         "coefficient": model.coef_,
         "abs_coefficient": np.abs(model.coef_),
     }).sort_values("abs_coefficient", ascending=False)
 
-    print("\nTop coefficients by absolute size")
-    print("-" * 33)
-    print(coef_table[["feature", "coefficient"]].to_string(index=False))
+    print(f"\nTop {top_n} coefficients by absolute size")
+    print("-" * 41)
+    print(coef_table[["feature", "coefficient"]].head(top_n).to_string(index=False))
     print(f"\nIntercept: {model.intercept_:.6f}")
+    print(f"Selected alpha: {model.alpha_:.6f}")
 
 
 def main() -> None:
@@ -127,13 +135,18 @@ def main() -> None:
     X_train, X_test, y_train, y_test, meta_train, meta_test = train_test_split_time_ordered(
         X, y, meta)
 
-    model = LinearRegression()
-    model.fit(X_train, y_train)
+    pipeline = make_pipeline(
+        StandardScaler(),
+        RidgeCV(alphas=ALPHAS),
+    )
+    pipeline.fit(X_train, y_train)
 
-    train_pred_residual = model.predict(X_train)
-    test_pred_residual = model.predict(X_test)
+    ridge = pipeline.named_steps["ridgecv"]
+    train_pred_residual = pipeline.predict(X_train)
+    test_pred_residual = pipeline.predict(X_test)
     train_pred = train_pred_residual + meta_train[BASELINE_COL].to_numpy()
     test_pred = test_pred_residual + meta_test[BASELINE_COL].to_numpy()
+    test_baselines = baseline_predictions(meta_train, meta_test)
 
     print(f"Rows used: {len(X):,}")
     print(f"Train rows: {len(X_train):,}")
@@ -143,21 +156,21 @@ def main() -> None:
 
     print_metrics(meta_train[TARGET], train_pred, "Train")
     print_metrics(meta_test[TARGET], test_pred, "Test")
-    print_baselines(meta_test[TARGET], baseline_predictions(meta_train, meta_test))
-    print_coefficients(model, X.columns)
+    print_baselines(meta_test[TARGET], test_baselines)
+    print_coefficients(ridge, X.columns)
 
     predictions = meta_test[
         ["date", "market", "prob", "target_horizon_days", TARGET, BASELINE_COL]
     ].copy()
     predictions["prediction"] = test_pred
     predictions["residual_prediction"] = test_pred_residual
-    for label, baseline_pred in baseline_predictions(meta_train, meta_test).items():
+    for label, baseline_pred in test_baselines.items():
         col = label.removeprefix("Baseline: ").replace(" ", "_")
         predictions[col] = baseline_pred
     predictions["residual"] = predictions[TARGET] - predictions["prediction"]
 
     output_path = Path(__file__).resolve().parent.parent / \
-        "models" / f"regression_predictions_{args.horizon}d.csv"
+        "models" / f"ridge_predictions_{args.horizon}d.csv"
     predictions.to_csv(output_path, index=False)
     print(f"\nSaved out-of-sample predictions to {output_path.name}")
 
